@@ -133,7 +133,7 @@ function back(label, view) {
 
 function renderNavbar() {
   const user = USERS[S.role];
-  return '<div class="nb"><div class="logo">VÉRTI<b>GO!</b></div><div class="sb"><span class="live"><i></i>Sistema en Línea</span><span>Sede Central · Garita de Jalisco</span></div><div class="pf"><div class="t"><b>' + user[0] + '</b><span>' + user[1] + '</span></div><div class="avt" onclick="S.role=null;S.view=\'login\';render()" title="Cerrar sesión">' + user[2] + '</div></div></div>';
+  return '<div class="nb"><button class="logo" type="button" onclick="S.role=null;S.view=\'login\';render()" aria-label="Volver al inicio de sesión">VÉRTI<b>GO!</b></button><div class="sb"><span class="live"><i></i>Sistema en Línea</span><span>Sede Central · Garita de Jalisco</span></div><div class="pf"><div class="t"><b>' + user[0] + '</b><span>' + user[1] + '</span></div><div class="avt" onclick="S.role=null;S.view=\'login\';render()" title="Cerrar sesión">' + user[2] + '</div></div></div>';
 }
 
 function renderTabs() {

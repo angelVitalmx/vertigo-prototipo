@@ -6,7 +6,7 @@ body{margin:0;background:var(--bg);color:var(--tx);font-family:Geist,system-ui,A
 button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer}
 .hint{background:#1d1f08;color:var(--lime);text-align:center;padding:6px;font-size:12px}
 .nb{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px clamp(16px,3vw,40px);border-bottom:1px solid #e2e8f066;background:var(--bg)}
-.logo{font-family:Inter,Arial Black,sans-serif;font-weight:900;font-style:italic;font-size:clamp(28px,3.4vw,44px);line-height:1.1}.logo b{color:var(--lime)}
+.logo{font-family:Inter,Arial Black,sans-serif;font-weight:900;font-style:italic;font-size:clamp(28px,3.4vw,44px);line-height:1.1}.nb .logo{appearance:none;border:0;background:none;color:inherit;padding:0;text-align:left;cursor:pointer}.logo b{color:var(--lime)}
 .sb{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .live{display:inline-flex;align-items:center;gap:6px;background:#ecfdf5;color:#065f46;font-weight:600;font-size:12px;padding:4px 10px;border-radius:20px}.live i{width:6px;height:6px;border-radius:50%;background:#10b981}
 .pf{display:flex;align-items:center;gap:14px}.pf .t{text-align:right}.pf b{display:block;font-size:14px}.pf span{color:var(--mut);font-size:12px}
