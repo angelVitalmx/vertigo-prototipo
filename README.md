@@ -6,6 +6,8 @@ Este proyecto es únicamente una **muestra visual e interactiva** de una propues
 
 ## Ver el prototipo
 
+Puedes probarlo en GitHub Pages: [https://angelvitalmx.github.io/vertigo-prototipo/](https://angelvitalmx.github.io/vertigo-prototipo/)
+
 Abre `index.html` en un navegador. No se requiere instalación ni compilación. La tipografía se carga desde Google Fonts, por lo que se necesita conexión a Internet para verla correctamente; sin conexión, se usarán fuentes alternativas.
 
 ## Archivos
