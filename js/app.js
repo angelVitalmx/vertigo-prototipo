@@ -38,18 +38,24 @@ const STATE = {
   tier: 'Plata',
   pers: 1,
   minor: false,
-  disc: 0,
   modal: null,
   toast: '',
   folio: 10843,
   paysToday: 12,
   regToday: 5,
-  pend: 3,
   shift: false,
+  clock: 10 * 60 + 45,
+  sessionIncome: 0,
+  uq: '',
+  planFilt: 'Todos',
+  form: { n: '', d: '30', t: '', e: '', ok: false },
+  formErr: {},
   aforo: 18,
+  attendanceToday: 18,
   method: 'Efectivo',
   selT: 'TR-26002',
   coachRes: null,
+  outflows: [],
   M: [
     { id: '24890', n: 'Sergio Ramos', age: 32, plan: 'Oro', st: 'activa', v: '28/09/2026', inside: false, tel: '+52 612 123 4567' },
     { id: '31245', n: 'Ana López', age: 28, plan: 'Plata', st: 'activa', v: '15/10/2026', inside: true, tel: '+52 612 555 0101' },
@@ -105,6 +111,25 @@ function money(value) {
   return '$' + Number(value).toLocaleString('es-MX');
 }
 
+// Ingresos base del mes por concepto. El total siempre es la suma del desglose
+// más lo cobrado en esta sesión (efectivo, inscripciones y transferencias aprobadas).
+const BASE_INCOME = { memberships: 3050, classes: 1800, products: 950 };
+
+function financialSummary() {
+  const memberships = BASE_INCOME.memberships + S.sessionIncome;
+  const income = memberships + BASE_INCOME.classes + BASE_INCOME.products;
+  const expenses = 4100 + S.outflows.reduce((total, item) => total + item.amount, 0);
+  return { income, memberships, expenses, balance: income - expenses };
+}
+
+function pendingCount() {
+  return S.T.filter((item) => item.s === 'pend').length;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
 function go(view) {
   S.view = view;
   S.coachRes = null;
@@ -112,18 +137,23 @@ function go(view) {
   window.scrollTo(0, 0);
 }
 
+let toastTimer = null;
+
 function toast(message) {
   S.toast = message;
   render();
-  setTimeout(() => {
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
     S.toast = '';
     render();
   }, 2600);
 }
 
+// Reloj simulado de la demo: arranca a las 10:45 (la hora de los datos de ejemplo)
+// y avanza un minuto por acción, para que la bitácora mantenga un orden coherente.
 function log(text, subtitle, label, kind) {
-  const now = new Date();
-  const stamp = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+  S.clock += 1;
+  const stamp = ('0' + Math.floor(S.clock / 60) % 24).slice(-2) + ':' + ('0' + (S.clock % 60)).slice(-2);
   S.act.unshift([stamp, text, subtitle || 'Caja · Recepción', label || 'Completado', kind || 'ok']);
 }
 
@@ -177,40 +207,55 @@ function viewPanel() {
       ['Gestionar Usuarios', 'Administrar membresías como cambiar planes, pausas de membresías y bajas', 'users', 'usuarios']
     ];
 
-    return '<main class="reception-panel"><div class="reception-heading"><h1>Panel de control diario</h1><p class="sub">Gestione registros, controle flujos de caja y administre usuarios en tiempo real.</p></div><section class="reception-section"><div class="reception-section-heading"><h2>' + icon('bolt', 14) + ' Acciones rápidas</h2><span>Ver lista de acciones completa →</span></div><div class="reception-actions">' + actions.map((action, index) => '<button class="qa reception-qa" onclick="go(\'' + action[3] + '\')"><div class="reception-action-top"><span class="reception-action-icon">' + icon(action[2], 18) + '</span><span class="circ">' + icon('arrow', 14) + '</span></div><b>' + action[0] + '</b><span>' + action[1] + '</span></button>').join('') + '</div></section><section class="reception-section"><h2 class="reception-section-title">Resumen de Hoy</h2><div class="reception-summary"><div class="reception-stat"><i></i><div><span>Usuarios registrados hoy</span><b>' + S.regToday + '</b><small>+5 que ayer</small></div></div><div class="reception-stat"><i></i><div><span>Pagos del día</span><b>' + S.paysToday + '</b><small>' + S.paysToday + ' registrados hoy</small></div></div><div class="reception-stat"><i></i><div><span>Pagos Pendientes</span><b>' + S.pend + '</b><small>Atención urgente</small></div></div></div></section><section class="reception-activity"><div class="reception-activity-heading"><h2>Actividad Reciente</h2><span>Actualizado hace 1 min</span></div>' + S.act.map((item) => '<div class="ar"><div class="tm">' + item[0] + '</div><div class="ti"><b>' + item[1] + '</b><span>' + item[2] + '</span></div>' + badge(item[4], item[3]) + '</div>').join('') + '</section></main>';
+    return '<main class="reception-panel"><div class="reception-heading"><h1>Panel de control diario</h1><p class="sub">Gestione registros, controle flujos de caja y administre usuarios en tiempo real.</p></div><section class="reception-section"><div class="reception-section-heading"><h2>' + icon('bolt', 14) + ' Acciones rápidas</h2><span>Ver lista de acciones completa →</span></div><div class="reception-actions">' + actions.map((action, index) => '<button class="qa reception-qa" onclick="go(\'' + action[3] + '\')"><div class="reception-action-top"><span class="reception-action-icon">' + icon(action[2], 18) + '</span><span class="circ">' + icon('arrow', 14) + '</span></div><b>' + action[0] + '</b><span>' + action[1] + '</span></button>').join('') + '</div></section><section class="reception-section"><h2 class="reception-section-title">Resumen de Hoy</h2><div class="reception-summary"><div class="reception-stat"><i></i><div><span>Usuarios registrados hoy</span><b>' + S.regToday + '</b><small>+5 que ayer</small></div></div><div class="reception-stat"><i></i><div><span>Pagos del día</span><b>' + S.paysToday + '</b><small>' + S.paysToday + ' registrados hoy</small></div></div><div class="reception-stat"><i></i><div><span>Pagos Pendientes</span><b>' + pendingCount() + '</b><small>Atención urgente</small></div></div></div></section><section class="reception-activity"><div class="reception-activity-heading"><h2>Actividad Reciente</h2><span>Actualizado hace 1 min</span></div>' + S.act.map((item) => '<div class="ar"><div class="tm">' + item[0] + '</div><div class="ti"><b>' + item[1] + '</b><span>' + item[2] + '</span></div>' + badge(item[4], item[3]) + '</div>').join('') + '</section></main>';
+  }
+
+  if (S.role === 'admin') {
+    const finances = financialSummary();
+    const actions = [
+      ['Transferencias pendientes', 'Revisar y aprobar pagos pendientes', 'check', 'transf'],
+      ['Socios', 'Consultar y administrar socios y membresías', 'users', 'usuarios'],
+      ['Registrar salida', 'Registrar pagos a proveedores, recibos y otros gastos', 'dollar', 'salida'],
+      ['Aforo por zonas y horarios', 'Consultar el aforo actual y la actividad por zona', 'bolt', 'area'],
+      ['Reporte financiero', 'Consultar ingresos, gastos y balance', 'dollar', 'reporte']
+    ];
+
+    return '<main class="reception-panel"><div class="reception-heading"><h1>Panel principal</h1><p class="sub">Recepción, gestión de membresías, pagos y control de accesos en una sola vista.</p></div><section class="reception-section"><div class="reception-section-heading"><h2>' + icon('bolt', 14) + ' Acciones rápidas</h2><span>Operación diaria</span></div><div class="reception-actions">' + actions.map((action) => {
+      const isFinancial = action[3] === 'reporte';
+      const financialPreview = isFinancial ? '<div class="admin-financial-preview"><div><small>Ingresos</small><b>' + money(finances.income) + '</b></div><div><small>Salidas</small><b>' + money(finances.expenses) + '</b></div></div>' : '';
+      return '<button class="qa reception-qa' + (isFinancial ? ' admin-financial-action' : '') + '" onclick="go(\'' + action[3] + '\')"><div class="reception-action-top"><span class="reception-action-icon">' + icon(action[2], 18) + '</span><span class="circ">' + icon('arrow', 14) + '</span></div><b>' + action[0] + '</b><span>' + action[1] + '</span>' + financialPreview + '</button>';
+    }).join('') + '</div></section><section class="reception-section"><h2 class="reception-section-title">Resumen de Hoy</h2><div class="reception-summary admin-summary"><div class="reception-stat"><i></i><div><span>Socios activos</span><b>980</b><small>+12 este mes</small></div></div><div class="reception-stat"><i></i><div><span>Por vencer (7 días)</span><b>45</b><small>Atención requerida</small></div></div><div class="reception-stat"><i></i><div><span>Congeladas / pausadas</span><b>18</b><small>Temporal</small></div></div><div class="reception-stat"><i></i><div><span>Asistencia del día</span><b>' + S.attendanceToday + '</b><small>' + S.aforo + ' presentes ahora</small></div></div></div></section><section class="reception-activity"><div class="reception-activity-heading"><h2>Actividad Reciente</h2><span>Últimas 5 acciones</span></div>' + S.act.map((item) => '<div class="ar"><div class="tm">' + item[0] + '</div><div class="ti"><b>' + item[1] + '</b><span>' + item[2] + '</span></div>' + badge(item[4], item[3]) + '</div>').join('') + '</section></main>';
   }
 
   return '<main><div class="row2"><div><h1>Panel principal</h1><p class="sub" style="font-weight:500">Recepción, gestión de membresías, pagos y control de accesos en una sola vista.</p></div><div class="sb"><button class="btn o sm" onclick="toast(\'Exportación de reporte\')">Exportar Reporte</button><button class="btn sm" onclick="go(\'inscribir\')">+ Inscribir Nuevo Socio</button></div></div><div class="g g4 gs"><div class="card s"><small class="mut">Socios activos</small><div style="font-size:28px;font-weight:700;color:var(--ok)">980</div><small style="color:var(--ok)">+12 este mes</small></div><div class="card s"><small class="mut">Por vencer (7 días)</small><div style="font-size:28px;font-weight:700;color:var(--warn)">45</div><small style="color:var(--warn)">⚠ Atención requerida</small></div><div class="card s"><small class="mut">Congeladas / pausadas</small><div style="font-size:28px;font-weight:700;color:#60a5fa">18</div><small style="color:#60a5fa">Temporal</small></div><div class="card s"><small class="mut">Tasa de retención</small><div style="font-size:28px;font-weight:700;color:var(--ok)">94.2%</div><small style="color:var(--ok)">Meta: 92.0%</small></div></div><div class="split"><div class="card"><div class="row2"><h2 style="color:var(--tx)">Acciones rápidas</h2><span class="mut">Hoy</span></div><div class="g g3 gs" style="margin-top:18px">' + ['Registro de pago', 'Control de acceso', 'Gestión de usuarios', 'Transferencias', 'Reporte financiero', 'Cobranza'].map((action, index) => '<button class="qa" onclick="go(\'' + ['pago', 'coach', 'usuarios', 'transf', 'reporte', 'panel'][index] + '\')"><div class="hd"><div class="ico">' + icon('plus', 22) + '</div><div class="circ">' + (index + 1) + '</div></div><b>' + action + '</b><span>Atención comercial</span></button>').join('') + '</div></div><div class="card"><div class="row2"><h2 style="color:var(--tx)">Actividad reciente</h2><span class="mut">Últimas 5 acciones</span></div>' + S.act.map((item) => '<div class="ar"><div class="tm">' + item[0] + '</div><div class="ti"><b>' + item[1] + '</b><span>' + item[2] + '</span></div>' + badge(item[4], item[3]) + '</div>').join('') + '</div></div></main>';
 }
 
 function viewInscribir() {
-  return '<main style="max-width:1000px">' + back('Volver al menú principal', 'panel') + '<div><h1>Inscripción de socio</h1><p class="sub" style="font-weight:500">Registro de miembro nuevo, datos del tutor y consentimiento para la apertura del expediente digital.</p></div><div class="card"><div class="sec">Datos del socio</div><div class="fg"><div class="fld"><label>NOMBRE COMPLETO</label><input id="n0" value="" placeholder="Ej. Fernanda Ruiz"></div><div class="fld"><label>EDAD</label><input id="d0" value="30" maxlength="2"></div><div class="fld"><label>TELÉFONO</label><input id="t0" value="" maxlength="10" placeholder="10 dígitos"></div><div class="fld"><label>CORREO</label><input id="e0" value="" placeholder="correo@ejemplo.com"></div></div></div><div class="card" style="margin-top:20px"><div class="sec">Plan y membresía</div><div class="sel"><button class="' + (S.tier === 'Bronce' ? 'on' : '') + '" onclick="S.tier=\'Bronce\';render()">Bronce</button><button class="' + (S.tier === 'Plata' ? 'on' : '') + '" onclick="S.tier=\'Plata\';render()">Plata</button><button class="' + (S.tier === 'Oro' ? 'on' : '') + '" onclick="S.tier=\'Oro\';render()">Oro</button></div><div class="fg" style="margin-top:16px"><div class="fld"><label>PERSONAS EN EL PLAN</label><input value="' + S.pers + '" onchange="S.pers=Number(this.value)||1;render()"></div><div class="fld"><label>CUOTA BASE</label><input value="' + money(S.P[S.tier]) + '" readonly></div></div><div class="fld" style="margin-top:16px"><label>CÓDIGO DE DESCUENTO</label><input id="dc" placeholder="Ingresar código promocional"></div><button class="btn o" style="margin-top:12px" onclick="applyDisc()">Aplicar descuento</button></div><div class="card" style="margin-top:20px"><div class="sec">Documentación</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div class="drop" onclick="toast(\'Carga de documento simulada\')"><div class="ico">' + icon('id', 26) + '</div>Identificación Oficial (INE) - Frente</div><div class="drop" onclick="toast(\'Carga de foto simulada\')"><div class="ico">' + icon('cam', 26) + '</div>Tomar o subir foto de perfil (Rostro)</div><span class="mut">' + icon('up', 26) + '</span></div><label style="display:flex;gap:8px;align-items:center;margin-top:20px;color:var(--tx);font-size:13px"><input id="ok" type="checkbox" style="width:auto"> El socio acepta el aviso de privacidad</label></div><div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap"><button class="btn r" style="min-width:220px" onclick="go(\'panel\')">Cancelar Registro</button><button class="btn gr" style="min-width:220px" onclick="inscribir()">Registrar Usuario</button></div></main>';
+  return '<main style="max-width:1000px">' + back('Volver al menú principal', 'panel') + '<div><h1>Inscripción de socio</h1><p class="sub" style="font-weight:500">Registro de miembro nuevo, datos del tutor y consentimiento para la apertura del expediente digital.</p></div><div class="card"><div class="sec">Datos del socio</div><div class="fg"><div class="fld"><label>NOMBRE COMPLETO</label><input id="n0" class="' + (S.formErr.n0 ? 'err' : '') + '" value="' + escapeHtml(S.form.n) + '" oninput="S.form.n=this.value" placeholder="Ej. Fernanda Ruiz"></div><div class="fld"><label>EDAD</label><input id="d0" class="' + (S.formErr.d0 ? 'err' : '') + '" value="' + escapeHtml(S.form.d) + '" oninput="S.form.d=this.value" maxlength="2" inputmode="numeric"></div><div class="fld"><label>TELÉFONO</label><input id="t0" class="' + (S.formErr.t0 ? 'err' : '') + '" value="' + escapeHtml(S.form.t) + '" oninput="S.form.t=this.value" maxlength="10" inputmode="numeric" placeholder="10 dígitos"></div><div class="fld"><label>CORREO</label><input id="e0" class="' + (S.formErr.e0 ? 'err' : '') + '" type="email" value="' + escapeHtml(S.form.e) + '" oninput="S.form.e=this.value" placeholder="correo@ejemplo.com"></div></div></div><div class="card" style="margin-top:20px"><div class="sec">Plan y membresía</div><div class="sel"><button class="' + (S.tier === 'Bronce' ? 'on' : '') + '" onclick="S.tier=\'Bronce\';render()">Bronce</button><button class="' + (S.tier === 'Plata' ? 'on' : '') + '" onclick="S.tier=\'Plata\';render()">Plata</button><button class="' + (S.tier === 'Oro' ? 'on' : '') + '" onclick="S.tier=\'Oro\';render()">Oro</button></div><div class="fg" style="margin-top:16px"><div class="fld"><label>PERSONAS EN EL PLAN</label><input value="' + S.pers + '" inputmode="numeric" onchange="S.pers=Math.min(10,Math.max(1,Math.round(Number(this.value))||1));render()"></div><div class="fld"><label>CUOTA BASE</label><input value="' + money(S.P[S.tier]) + '" readonly></div></div><div class="fld" style="margin-top:16px"><label>TOTAL A COBRAR (CUOTA × PERSONAS + INSCRIPCIÓN ' + money(S.INS) + ')</label><input value="' + money(S.P[S.tier] * S.pers + S.INS) + '" readonly></div></div><div class="card" style="margin-top:20px"><div class="sec">Documentación</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div class="drop" onclick="toast(\'Carga de documento simulada\')"><div class="ico">' + icon('id', 26) + '</div>Identificación Oficial (INE) - Frente</div><div class="drop" onclick="toast(\'Carga de foto simulada\')"><div class="ico">' + icon('cam', 26) + '</div>Tomar o subir foto de perfil (Rostro)</div><span class="mut">' + icon('up', 26) + '</span></div><label style="display:flex;gap:8px;align-items:center;margin-top:20px;color:var(--tx);font-size:13px"><input id="ok" type="checkbox" style="width:auto"' + (S.form.ok ? ' checked' : '') + ' onchange="S.form.ok=this.checked"> El socio acepta el aviso de privacidad</label></div><div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap"><button class="btn r" style="min-width:220px" onclick="resetForm();go(\'panel\')">Cancelar Registro</button><button class="btn gr" style="min-width:220px" onclick="inscribir()">Registrar Usuario</button></div></main>';
 }
 
-function applyDisc() {
-  const value = ($('dc').value || '').trim().toUpperCase();
-  if (value === 'VERTIGO10') {
-    S.disc = 0.1;
-    toast('Descuento del 10% aplicado');
-  } else {
-    S.disc = 0;
-    toast('Código no válido');
-  }
+function resetForm() {
+  S.form = { n: '', d: '30', t: '', e: '', ok: false };
+  S.formErr = {};
+  S.pers = 1;
 }
+
+const VALIDATORS = {
+  n: (value) => value.length >= 3,
+  d: (value) => /^\d{1,2}$/.test(value) && Number(value) >= 1,
+  t: (value) => /^\d{10}$/.test(value),
+  e: (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+};
 
 function inscribir() {
   let bad = 0;
   const getValue = (id) => $(id) ? $(id).value.trim() : '';
 
-  for (let index = 0; index < S.pers; index += 1) {
-    ['n', 'd', 't', 'e'].forEach((prefix) => {
-      const fieldId = prefix + index;
-      const value = getValue(fieldId);
-      const valid = value && ((prefix !== 't' && prefix !== 'e') || /^\d{10}$/.test(value));
-      if ($(fieldId)) $(fieldId).classList.toggle('err', !valid);
-      if (!valid) bad += 1;
-    });
-  }
+  ['n0', 'd0', 't0', 'e0'].forEach((fieldId) => {
+    const valid = VALIDATORS[fieldId[0]](getValue(fieldId));
+    S.formErr[fieldId] = !valid;
+    if (!valid) bad += 1;
+  });
 
   if (S.minor && !getValue('tu')) {
     $('tu').classList.add('err');
@@ -221,14 +266,17 @@ function inscribir() {
   if (!$('ok').checked) return toast('Falta el consentimiento al aviso de privacidad');
 
   const id = String(32000 + S.M.length);
-  const total = Math.round((S.P[S.tier] * S.pers + S.INS) * (1 - S.disc));
-  S.M.unshift({ id, n: getValue('n0'), age: 30, plan: S.tier, st: 'activa', v: '14/11/2026', inside: false, tel: '+52 ' + getValue('t0') });
+  const name = escapeHtml(getValue('n0'));
+  const total = S.P[S.tier] * S.pers + S.INS;
+  S.M.unshift({ id, n: name, age: Number(getValue('d0')), plan: S.tier, st: 'activa', v: '14/11/2026', inside: false, tel: '+52 ' + getValue('t0') });
   S.regToday += 1;
   S.paysToday += 1;
   S.folio += 1;
-  log('Usuario ' + getValue('n0') + ' registrado', 'Nuevo Perfil · Recepción');
+  S.sessionIncome += total;
+  log('Usuario ' + name + ' registrado', 'Nuevo Perfil · Recepción');
   S.sel = id;
-  S.modal = { t: 'Usuario registrado', n: getValue('n0'), c: 'Inscripción + plan ' + S.tier, a: total, f: S.folio, msg: 'Se envió el mensaje de bienvenida por correo.' };
+  S.modal = { t: 'Usuario registrado', n: name, c: 'Inscripción + plan ' + S.tier + (S.pers > 1 ? ' × ' + S.pers + ' personas' : ''), a: total, f: S.folio, msg: 'Se envió el mensaje de bienvenida a ' + escapeHtml(getValue('e0')) + '.' };
+  resetForm();
   render();
 }
 
@@ -239,7 +287,7 @@ function viewPago() {
   const multa = member.st === 'vencida' ? S.MULTA : 0;
   const total = S.P[member.plan] + multa;
 
-  return '<main style="max-width:1200px">' + back('Volver al menú principal', 'panel') + '<div><h1>Registro de pago</h1><p class="sub" style="font-weight:500">Busca un usuario y registra su pago de membresía.</p></div><div class="srch">' + icon('search', 18, '#888') + '<input id="qs" value="' + S.q + '" placeholder="Buscar usuario por nombre, teléfono o ID..." onkeydown="if(event.key===\'Enter\'){S.q=this.value;render()}"><small>Presiona Enter para buscar</small></div><div class="split" style="grid-template-columns:minmax(260px,1fr) minmax(300px,1.6fr)"><div><div class="row2 mut" style="font-size:12px;margin-bottom:10px"><b>Resultados de búsqueda</b><span>' + results.length + ' usuarios</span></div>' + results.map((person) => '<div class="li ' + (person.id === member.id ? 'sel2' : '') + '" onclick="S.sel=\'' + person.id + '\';render()"><div style="display:flex;gap:12px;align-items:center"><div class="av ' + (person.id === member.id ? 'l' : '') + '">' + initials(person.n) + '</div><div><b>' + person.n + '</b><div class="mut" style="font-size:11px">ID: #' + person.id + '</div></div></div>' + statusBadge(person.st) + '</div>').join('') + '</div><div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="row2"><div style="display:flex;gap:14px;align-items:center"><div class="av l" style="width:56px;height:56px">' + initials(member.n) + '</div><div><b style="font-size:18px">' + member.n + '</b> <span class="mut" style="font-size:12px">ID: #' + member.id + '</span><div class="mut" style="font-size:12px">' + member.age + ' años · ' + member.tel + '</div></div></div>' + statusBadge(member.st) + '</div><div class="info4"><div><small>Membresía</small>' + badge(member.plan === 'Oro' ? 'warn' : 'mut', '● ' + member.plan.toUpperCase()) + '</div><div><small>Vencimiento</small><b>' + member.v + '</b></div><div><small>Último pago</small><b>28/08/2026</b></div><div><small>Días restantes</small><b>' + (member.st === 'vencida' ? '−5' : member.st === 'pausa' ? '—' : '3') + '</b></div></div></div><div class="card"><div class="sec" style="color:var(--tx)">Registrar pago</div>' + (multa ? '<div style="margin-bottom:14px">' + badge('bad', 'Fuera de tolerancia: se suma multa de ' + money(multa)) + '</div>' : '') + (member.st === 'pausa' ? '<div style="margin-bottom:14px">' + badge('warn', 'Membresía en pausa: reanúdala antes de cobrar') + '</div>' : '') + '<div class="fg"><div class="fld"><label>TIPO DE PAGO</label><select><option>Membresía mensual</option><option>Pase por día</option></select></div><div class="fld"><label>FECHA DE PAGO</label><input value="14/10/2026"></div></div><div class="fld" style="margin-top:14px"><label>MONTO</label><input value="' + money(total) + '.00" readonly></div><label style="margin-top:14px">MÉTODO DE PAGO</label><div class="pills">' + ['Efectivo', 'Transferencia', 'Efectivo + Transferencia'].map((method) => '<button class="' + (S.method === method ? 'on' : '') + '" onclick="S.method=\'' + method + '\';render()">' + method + '</button>').join('') + '</div><div class="fld" style="margin-top:14px"><label>NOTAS (OPCIONAL)</label><textarea rows="3" placeholder="Ej. Pago adelantado, clase extra, etc."></textarea></div><button class="btn w" style="margin-top:16px" ' + (member.st === 'pausa' ? 'disabled' : '') + ' onclick="cobrar()">' + icon('check', 18) + ' Confirmar pago</button></div></div></div></main>';
+  return '<main style="max-width:1200px">' + back('Volver al menú principal', 'panel') + '<div><h1>Registro de pago</h1><p class="sub" style="font-weight:500">Busca un usuario y registra su pago de membresía.</p></div><div class="srch">' + icon('search', 18, '#888') + '<input id="qs" value="' + escapeHtml(S.q) + '" placeholder="Buscar usuario por nombre, teléfono o ID..." onkeydown="if(event.key===\'Enter\'){S.q=this.value;render()}"><small>Presiona Enter para buscar</small></div><div class="split" style="grid-template-columns:minmax(260px,1fr) minmax(300px,1.6fr)"><div><div class="row2 mut" style="font-size:12px;margin-bottom:10px"><b>Resultados de búsqueda</b><span>' + results.length + ' usuarios</span></div>' + results.map((person) => '<div class="li ' + (person.id === member.id ? 'sel2' : '') + '" onclick="S.sel=\'' + person.id + '\';render()"><div style="display:flex;gap:12px;align-items:center"><div class="av ' + (person.id === member.id ? 'l' : '') + '">' + initials(person.n) + '</div><div><b>' + person.n + '</b><div class="mut" style="font-size:11px">ID: #' + person.id + '</div></div></div>' + statusBadge(person.st) + '</div>').join('') + '</div><div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="row2"><div style="display:flex;gap:14px;align-items:center"><div class="av l" style="width:56px;height:56px">' + initials(member.n) + '</div><div><b style="font-size:18px">' + member.n + '</b> <span class="mut" style="font-size:12px">ID: #' + member.id + '</span><div class="mut" style="font-size:12px">' + member.age + ' años · ' + member.tel + '</div></div></div>' + statusBadge(member.st) + '</div><div class="info4"><div><small>Membresía</small>' + badge(member.plan === 'Oro' ? 'warn' : 'mut', '● ' + member.plan.toUpperCase()) + '</div><div><small>Vencimiento</small><b>' + member.v + '</b></div><div><small>Último pago</small><b>28/08/2026</b></div><div><small>Días restantes</small><b>' + (member.st === 'vencida' ? '−5' : member.st === 'pausa' ? '—' : '3') + '</b></div></div></div><div class="card"><div class="sec" style="color:var(--tx)">Registrar pago</div>' + (multa ? '<div style="margin-bottom:14px">' + badge('bad', 'Fuera de tolerancia: se suma multa de ' + money(multa)) + '</div>' : '') + (member.st === 'pausa' ? '<div style="margin-bottom:14px">' + badge('warn', 'Membresía en pausa: reanúdala antes de cobrar') + '</div>' : '') + '<div class="fg"><div class="fld"><label>TIPO DE PAGO</label><select><option>Membresía mensual</option><option>Pase por día</option></select></div><div class="fld"><label>FECHA DE PAGO</label><input value="14/10/2026"></div></div><div class="fld" style="margin-top:14px"><label>MONTO</label><input value="' + money(total) + '.00" readonly></div><label style="margin-top:14px">MÉTODO DE PAGO</label><div class="pills">' + ['Efectivo', 'Transferencia', 'Efectivo + Transferencia'].map((method) => '<button class="' + (S.method === method ? 'on' : '') + '" onclick="S.method=\'' + method + '\';render()">' + method + '</button>').join('') + '</div><div class="fld" style="margin-top:14px"><label>NOTAS (OPCIONAL)</label><textarea rows="3" placeholder="Ej. Pago adelantado, clase extra, etc."></textarea></div><button class="btn w" style="margin-top:16px" ' + (member.st === 'pausa' ? 'disabled' : '') + ' onclick="cobrar()">' + icon('check', 18) + ' Confirmar pago</button></div></div></div></main>';
 }
 
 function cobrar() {
@@ -248,15 +296,15 @@ function cobrar() {
   const total = S.P[member.plan] + multa;
 
   if (S.method !== 'Efectivo') {
-    S.pend += 1;
     log('Pago pendiente: Transferencia de ' + member.n, 'Caja · Recepcionista B', 'Transferencia Sin Verificar', 'warn');
-    S.T.unshift({ f: 'TR-' + (26005 + S.T.length), n: member.n, id: 'V-' + member.id, h: 'ahora', b: 'Por confirmar', m: total, s: 'pend' });
+    S.T.unshift({ f: 'TR-' + (26001 + S.T.length), n: member.n, id: 'V-' + member.id, mid: member.id, h: S.act[0][0], b: 'Por confirmar', m: total, s: 'pend' });
     S.modal = { t: 'Transferencia en revisión', n: member.n, c: 'Mensualidad ' + member.plan, a: total, f: null, msg: 'La membresía no se activa hasta que el administrador apruebe el pago.' };
     return render();
   }
 
   S.folio += 1;
   S.paysToday += 1;
+  S.sessionIncome += total;
   member.st = 'activa';
   member.v = '28/10/2026';
   log('Pago procesado: Ticket #' + S.folio, 'Caja · Recepcionista B', 'Pago Exitoso');
@@ -267,21 +315,78 @@ function cobrar() {
 function viewUsuarios() {
   const filter = S.filt;
   const member = memberById(S.sel) || S.M[0];
-  const list = S.M.filter((person) => filter === 'todos' || person.st === filter);
+  const query = S.uq.toLowerCase();
+  const list = S.M.filter((person) => (filter === 'todos' || person.st === filter)
+    && (S.planFilt === 'Todos' || person.plan === S.planFilt)
+    && (!query || (person.n + person.id + person.tel).toLowerCase().includes(query)));
   const countByStatus = (key) => S.M.filter((person) => person.st === key).length;
   const percent = member.st === 'vencida' ? '6%' : member.st === 'pausa' ? '0%' : '90%';
 
-  return '<main>' + back('Volver al menú principal', 'panel') + '<div class="row2"><div><h1>Gestión de usuarios</h1><p class="sub" style="font-weight:500">Administra atletas, renovaciones, congelamientos y control de acceso en tiempo real.</p></div><div style="display:flex;gap:12px"><button class="btn o sm" onclick="toast(\'Exportación de reporte\')">Exportar Reporte</button><button class="btn sm" onclick="go(\'inscribir\')">+ Inscribir Nuevo Socio</button></div></div><div class="g g4 gs">' + [['Socios Activos', '980', '+12 este mes', 'var(--ok)'], ['Por Vencer (7 días)', '45', '⚠ Atención requerida', 'var(--warn)'], ['Congeladas / Pausadas', 18 + countByStatus('pausa') - 1, 'Temporal', '#60a5fa'], ['Tasa Retención', '94.2%', 'Meta: 92.0%', 'var(--ok)']].map((stat) => '<div class="card s" style="padding:18px"><small class="mut">' + stat[0] + '</small><div style="font-size:26px;font-weight:700">' + stat[1] + '</div><small style="color:' + stat[3] + '">' + stat[2] + '</small></div>').join('') + '</div><div class="card s" style="padding:14px"><div class="srch">' + icon('search', 18, '#888') + '<input placeholder="Buscar usuario por nombre, teléfono o ID... Presiona Enter para buscar"></div><div class="pills" style="margin-top:12px"><button>Nivel: Todos</button><button>Plan: Todos</button><button>Sede Central</button></div><div class="pills" style="margin-top:12px">' + [['todos', 'TODOS (' + S.M.length + ')'], ['activa', '● ACTIVOS'], ['porvencer', '● POR VENCER'], ['pausa', '● PAUSADOS'], ['vencida', '● VENCIDOS']].map((item) => '<button class="' + (filter === item[0] ? 'on' : '') + '" onclick="S.filt=\'' + item[0] + '\';render()">' + item[1] + '</button>').join('') + '</div><div class="wrap" style="margin-top:16px"><table><tr><th>Usuario</th><th>Plan</th><th>Estado</th><th>Último pago</th></tr>' + list.map((person) => '<tr class="hl"><td><b>' + person.n + '</b></td><td>' + person.plan + '</td><td>' + statusBadge(person.st) + '</td><td>28/09/2026</td></tr>').join('') + '</table></div></div></main>';
+  return '<main>' + back('Volver al menú principal', 'panel') + '<div class="row2"><div><h1>Gestión de usuarios</h1><p class="sub" style="font-weight:500">Administra atletas, renovaciones, congelamientos y control de acceso en tiempo real.</p></div><div style="display:flex;gap:12px"><button class="btn o sm" onclick="toast(\'Exportación de reporte\')">Exportar Reporte</button><button class="btn sm" onclick="go(\'inscribir\')">+ Inscribir Nuevo Socio</button></div></div><div class="g g4 gs">' + [['Socios Activos', '980', '+12 este mes', 'var(--ok)'], ['Por Vencer (7 días)', '45', '⚠ Atención requerida', 'var(--warn)'], ['Congeladas / Pausadas', 18 + countByStatus('pausa') - 1, 'Temporal', '#60a5fa'], ['Tasa Retención', '94.2%', 'Meta: 92.0%', 'var(--ok)']].map((stat) => '<div class="card s" style="padding:18px"><small class="mut">' + stat[0] + '</small><div style="font-size:26px;font-weight:700">' + stat[1] + '</div><small style="color:' + stat[3] + '">' + stat[2] + '</small></div>').join('') + '</div><div class="card s" style="padding:14px"><div class="srch">' + icon('search', 18, '#888') + '<input id="uq" value="' + escapeHtml(S.uq) + '" placeholder="Buscar usuario por nombre, teléfono o ID... Presiona Enter para buscar" onkeydown="if(event.key===\'Enter\'){S.uq=this.value.trim();render()}"></div><div class="pills" style="margin-top:12px"><span class="mut" style="font-size:12px;align-self:center">Plan:</span>' + ['Todos', 'Bronce', 'Plata', 'Oro'].map((plan) => '<button class="' + (S.planFilt === plan ? 'on' : '') + '" onclick="S.planFilt=\'' + plan + '\';render()">' + plan + '</button>').join('') + '<span class="mut" style="font-size:12px;align-self:center;margin-left:auto">Sede Central</span></div><div class="pills" style="margin-top:12px">' + [['todos', 'TODOS (' + S.M.length + ')'], ['activa', '● ACTIVOS'], ['porvencer', '● POR VENCER'], ['pausa', '● PAUSADOS'], ['vencida', '● VENCIDOS']].map((item) => '<button class="' + (filter === item[0] ? 'on' : '') + '" onclick="S.filt=\'' + item[0] + '\';render()">' + item[1] + '</button>').join('') + '</div><div class="wrap" style="margin-top:16px"><table><tr><th>Usuario</th><th>Plan</th><th>Estado</th><th>Último pago</th></tr>' + (list.length ? list.map((person) => '<tr class="hl"><td><b>' + person.n + '</b></td><td>' + person.plan + '</td><td>' + statusBadge(person.st) + '</td><td>28/09/2026</td></tr>').join('') : '<tr><td colspan="4" class="mut">Ningún socio coincide con la búsqueda o los filtros.</td></tr>') + '</table></div></div></main>';
 }
 
 function viewTransf() {
-  return '<main><div><h1>Transferencias por confirmar</h1><p class="sub" style="font-weight:500">Revisa los pagos pendientes y aprueba transferencias antes de activar memberships.</p></div><div class="card"><div class="wrap"><table><tr><th>Folio</th><th>Usuario</th><th>ID</th><th>Hora</th><th>Banco / Referencia</th><th>Monto</th><th>Estado</th></tr>' + S.T.map((item) => '<tr><td>' + item.f + '</td><td>' + item.n + '</td><td>' + item.id + '</td><td>' + item.h + '</td><td>' + item.b + '</td><td>' + money(item.m) + '</td><td>' + badge(item.s === 'pend' ? 'warn' : 'ok', item.s === 'pend' ? 'Pendiente' : 'Aprobado') + '</td></tr>').join('') + '</table></div></div></main>';
+  const actions = (item, index) => item.s === 'pend'
+    ? '<div style="display:flex;gap:8px"><button class="btn sm" onclick="resolverTransf(' + index + ', true)">Aprobar</button><button class="btn r sm" onclick="resolverTransf(' + index + ', false)">Rechazar</button></div>'
+    : '<span class="mut">—</span>';
+  const status = (item) => item.s === 'pend' ? badge('warn', 'Pendiente') : item.s === 'ok' ? badge('ok', 'Aprobado') : badge('bad', 'Rechazado');
+
+  return '<main>' + back('Volver al Panel Principal', 'panel') + '<div><h1>Transferencias por confirmar</h1><p class="sub" style="font-weight:500">Revisa los pagos pendientes y aprueba las transferencias antes de activar las membresías. Pendientes: ' + pendingCount() + '</p></div><div class="card"><div class="wrap"><table><tr><th>Folio</th><th>Usuario</th><th>ID</th><th>Hora</th><th>Banco / Referencia</th><th>Monto</th><th>Estado</th><th>Acción</th></tr>' + S.T.map((item, index) => '<tr><td>' + item.f + '</td><td>' + item.n + '</td><td>' + item.id + '</td><td>' + item.h + '</td><td>' + item.b + '</td><td>' + money(item.m) + '</td><td>' + status(item) + '</td><td>' + actions(item, index) + '</td></tr>').join('') + '</table></div></div></main>';
+}
+
+function resolverTransf(index, approve) {
+  const item = S.T[index];
+  if (!item || item.s !== 'pend') return;
+
+  if (approve) {
+    item.s = 'ok';
+    S.paysToday += 1;
+    S.sessionIncome += item.m;
+    const member = item.mid ? memberById(item.mid) : null;
+    if (member) {
+      member.st = 'activa';
+      member.v = '28/10/2026';
+    }
+    log('Transferencia aprobada: ' + item.f + ' · ' + item.n, 'Administración', 'Pago Exitoso', 'ok');
+    toast('Transferencia aprobada' + (member ? ': membresía activada' : ''));
+  } else {
+    item.s = 'bad';
+    log('Pago rechazado - Usuario ' + item.n, 'Administración', 'Transferencia No Recibida', 'bad');
+    toast('Transferencia rechazada');
+  }
 }
 
 function viewReporte() {
-  const ingresos = S.M.length * 800;
-  const gastos = 4100;
-  return '<main>' + back('Volver al Panel Principal', 'panel') + '<div><h1>Reporte de ingresos y gastos</h1><p class="sub" style="font-weight:500">Solo visible para el Administrador · octubre 2026</p></div><div class="g g3 gs"><div class="card s"><small class="mut">Ingresos</small><div style="font-size:28px;font-weight:700;color:var(--ok)">' + money(ingresos) + '</div></div><div class="card s"><small class="mut">Gastos</small><div style="font-size:28px;font-weight:700;color:var(--bad)">' + money(gastos) + '</div></div><div class="card s"><small class="mut">Balance</small><div style="font-size:28px;font-weight:700;color:var(--lime)">' + money(ingresos - gastos) + '</div></div></div><div class="g g2"><div class="card"><h2>Ingresos por concepto</h2><div class="kv"><span>Membresías</span><b>' + money(ingresos) + '</b></div><div class="kv"><span>Clases extras</span><b>$1,800.00</b></div><div class="kv"><span>Venta de productos</span><b>$950.00</b></div></div><div class="card"><h2>Gastos por categoría</h2><div class="kv"><span>Staff</span><b>$1,800.00</b></div><div class="kv"><span>Servicios</span><b>$1,100.00</b></div><div class="kv"><span>Inventario</span><b>$1,200.00</b></div><button class="btn l w" style="margin-top:12px" onclick="toast(\'Exportación a PDF / Excel disponible en el sistema\')">Exportar PDF / Excel</button></div></div></main>';
+  const finances = financialSummary();
+  return '<main>' + back('Volver al Panel Principal', 'panel') + '<div><h1>Reporte de ingresos y gastos</h1><p class="sub" style="font-weight:500">Solo visible para el Administrador · octubre 2026</p></div><div class="g g3 gs"><div class="card s"><small class="mut">Ingresos</small><div style="font-size:28px;font-weight:700;color:var(--ok)">' + money(finances.income) + '</div></div><div class="card s"><small class="mut">Gastos</small><div style="font-size:28px;font-weight:700;color:var(--bad)">' + money(finances.expenses) + '</div></div><div class="card s"><small class="mut">Balance</small><div style="font-size:28px;font-weight:700;color:var(--lime)">' + money(finances.balance) + '</div></div></div><div class="g g2"><div class="card"><h2>Ingresos por concepto</h2><div class="kv"><span>Membresías</span><b>' + money(finances.memberships) + '</b></div><div class="kv"><span>Clases extras</span><b>' + money(BASE_INCOME.classes) + '</b></div><div class="kv"><span>Venta de productos</span><b>' + money(BASE_INCOME.products) + '</b></div></div><div class="card"><h2>Gastos por categoría</h2><div class="kv"><span>Staff</span><b>$1,800.00</b></div><div class="kv"><span>Servicios</span><b>$1,100.00</b></div><div class="kv"><span>Inventario</span><b>$1,200.00</b></div>' + (S.outflows.length ? '<div class="kv"><span>Salidas registradas</span><b>' + money(S.outflows.reduce((total, item) => total + item.amount, 0)) + '</b></div>' : '') + '<button class="btn l w" style="margin-top:12px" onclick="toast(\'Exportación a PDF / Excel disponible en el sistema\')">Exportar PDF / Excel</button></div></div></main>';
+}
+
+function viewSalida() {
+  const finances = financialSummary();
+  const rows = S.outflows.length
+    ? S.outflows.map((item) => '<tr><td>' + item.date + '</td><td>' + item.category + '</td><td>' + item.vendor + '</td><td>' + (item.reference || '—') + '</td><td>' + item.method + '</td><td>' + money(item.amount) + '</td></tr>').join('')
+    : '<tr><td colspan="6" class="mut">Aún no hay salidas registradas en esta sesión.</td></tr>';
+
+  return '<main style="max-width:1200px">' + back('Volver al Panel Principal', 'panel') + '<div><h1>Registrar salida</h1><p class="sub" style="font-weight:500">Registra pagos a proveedores, recibos y otros gastos del gimnasio.</p></div><div class="g g3 gs"><div class="card s"><small class="mut">Ingresos</small><div style="font-size:26px;font-weight:700;color:var(--ok)">' + money(finances.income) + '</div></div><div class="card s"><small class="mut">Salidas acumuladas</small><div style="font-size:26px;font-weight:700;color:var(--bad)">' + money(finances.expenses) + '</div></div><div class="card s"><small class="mut">Balance</small><div style="font-size:26px;font-weight:700;color:var(--lime)">' + money(finances.balance) + '</div></div></div><div class="card"><h2 style="color:var(--tx);margin-bottom:18px">Datos de la salida</h2><div class="fg"><div class="fld"><label for="out-category">TIPO DE SALIDA</label><select id="out-category"><option>Pago a proveedor</option><option>Recibo / servicio</option><option>Compra / insumo</option><option>Otro gasto</option></select></div><div class="fld"><label for="out-vendor">PROVEEDOR / BENEFICIARIO</label><input id="out-vendor" placeholder="Ej. Proveedor de limpieza" required></div><div class="fld"><label for="out-amount">MONTO</label><input id="out-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required></div><div class="fld"><label for="out-date">FECHA</label><input id="out-date" type="date" value="2026-10-15" required></div><div class="fld"><label for="out-method">MÉTODO DE PAGO</label><select id="out-method"><option>Transferencia</option><option>Efectivo</option><option>Tarjeta</option></select></div><div class="fld"><label for="out-reference">FOLIO / REFERENCIA DEL RECIBO</label><input id="out-reference" placeholder="Opcional"></div></div><button class="btn" style="margin-top:18px" onclick="registrarSalida()">Registrar salida</button></div><div class="card"><h2 style="color:var(--tx);margin-bottom:14px">Salidas registradas</h2><div class="wrap"><table><tr><th>Fecha</th><th>Tipo</th><th>Proveedor / Beneficiario</th><th>Folio / Recibo</th><th>Método</th><th>Monto</th></tr>' + rows + '</table></div></div></main>';
+}
+
+function registrarSalida() {
+  const category = $('out-category').value;
+  const vendor = escapeHtml($('out-vendor').value.trim());
+  const amount = Number($('out-amount').value);
+  const date = $('out-date').value;
+  const method = $('out-method').value;
+  const reference = escapeHtml($('out-reference').value.trim());
+
+  if (!vendor || !date || !Number.isFinite(amount) || amount <= 0) {
+    return toast('Completa el proveedor, la fecha y un monto mayor a cero');
+  }
+
+  S.outflows.unshift({ category, vendor, amount, date, method, reference });
+  log('Salida registrada: ' + vendor + ' · ' + money(amount), 'Gasto · ' + category, 'Salida registrada', 'warn');
+  S.view = 'salida';
+  render();
+  toast('Salida registrada correctamente');
 }
 
 function viewCoach() {
@@ -304,6 +409,7 @@ function scan(id) {
   } else {
     member.inside = true;
     S.aforo += 1;
+    S.attendanceToday += 1;
     result = { k: 'ok', t: 'ACCESO PERMITIDO', n: member.n, d: 'Entrada registrada · Plan ' + member.plan + (member.st === 'porvencer' ? ' · vence pronto' : '') };
   }
 
@@ -312,18 +418,20 @@ function scan(id) {
 }
 
 function viewArea() {
-  return '<main style="max-width:1000px"><div><h1>Mi área · Fuerza</h1><p class="sub" style="font-weight:500">Zona A-01 · Turno 06:00 – 14:00</p></div><div class="g g3 gs"><div class="card s"><small class="mut">Aforo actual</small><div style="font-size:28px;font-weight:700">' + S.aforo + ' / 25</div><div class="bar" style="margin-top:8px"><i style="width:' + Math.round((S.aforo / 25) * 100) + '%"></i></div></div><div class="card s"><small class="mut">Próxima clase</small><div style="font-size:20px;font-weight:700">Parkour · 11:00</div><small class="mut">17 / 20 inscritos</small></div></div><div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn" onclick="go(\'coach\')">Escanear QR</button><button class="btn o" onclick="go(\'presentes\')">Miembros presentes</button></div></main>';
+  const isAdmin = S.role === 'admin';
+  return '<main style="max-width:1000px">' + (isAdmin ? back('Volver al Panel Principal', 'panel') : '') + '<div><h1>' + (isAdmin ? 'Aforo por zona · Fuerza' : 'Mi área · Fuerza') + '</h1><p class="sub" style="font-weight:500">Zona A-01 · Turno 06:00 – 14:00</p></div><div class="g g3 gs"><div class="card s"><small class="mut">Aforo actual</small><div style="font-size:28px;font-weight:700">' + S.aforo + ' / 25</div><div class="bar" style="margin-top:8px"><i style="width:' + Math.round((S.aforo / 25) * 100) + '%"></i></div></div><div class="card s"><small class="mut">Próxima clase</small><div style="font-size:20px;font-weight:700">Parkour · 11:00</div><small class="mut">17 / 20 inscritos</small></div></div><div style="display:flex;gap:12px;flex-wrap:wrap">' + (isAdmin ? '' : '<button class="btn" onclick="go(\'coach\')">Escanear QR</button>') + '<button class="btn o" onclick="go(\'presentes\')">Miembros presentes</button></div></main>';
 }
 
 function viewPres() {
   const list = S.M.filter((member) => member.inside);
-  return '<main style="max-width:1000px"><div><h1>Miembros presentes</h1><p class="sub" style="font-weight:500">Aforo ' + S.aforo + ' / 25 · ' + list.length + ' registrados en esta demo</p></div>' + (list.length ? list.map((member) => '<div class="li" style="cursor:default"><div style="display:flex;gap:12px;align-items:center"><div class="av l">' + initials(member.n) + '</div><div><b>' + member.n + '</b><div class="mut" style="font-size:11px">Plan ' + member.plan + '</div></div></div><button class="btn o sm" onclick="out(\'' + member.id + '\')">Registrar salida</button></div>').join('') : '<div class="card mut">Nadie dentro todavía.</div>') + '</main>';
+  return '<main style="max-width:1000px">' + (S.role === 'admin' ? back('Volver a aforo por zonas', 'area') : '') + '<div><h1>Miembros presentes</h1><p class="sub" style="font-weight:500">Aforo ' + S.aforo + ' / 25 · ' + list.length + ' registrados en esta demo</p></div>' + (list.length ? list.map((member) => '<div class="li" style="cursor:default"><div style="display:flex;gap:12px;align-items:center"><div class="av l">' + initials(member.n) + '</div><div><b>' + member.n + '</b><div class="mut" style="font-size:11px">Plan ' + member.plan + '</div></div></div><button class="btn o sm" onclick="out(\'' + member.id + '\')">Registrar salida</button></div>').join('') : '<div class="card mut">Nadie dentro todavía.</div>') + '</main>';
 }
 
 function out(id) {
   const member = memberById(id);
+  if (!member || !member.inside) return;
   member.inside = false;
-  S.aforo -= 1;
+  S.aforo = Math.max(0, S.aforo - 1);
   toast('Salida confirmada');
 }
 
@@ -334,6 +442,7 @@ function render() {
     panel: viewPanel,
     inscribir: viewInscribir,
     pago: viewPago,
+    salida: viewSalida,
     usuarios: viewUsuarios,
     transf: viewTransf,
     reporte: viewReporte,

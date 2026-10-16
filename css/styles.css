@@ -1196,8 +1196,63 @@ tr.hl td {
   line-height: 1.4;
 }
 
+.admin-financial-action {
+  grid-column: 2 / span 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.8fr);
+  grid-template-rows: auto auto 1fr;
+  column-gap: 28px;
+  align-items: start;
+}
+
+.admin-financial-action .reception-action-top,
+.admin-financial-action > b,
+.admin-financial-action > span {
+  grid-column: 1;
+}
+
+.admin-financial-action > span {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.admin-financial-preview {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
+}
+
+.admin-financial-preview > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-financial-preview small {
+  color: var(--mut);
+  font-size: 11px;
+}
+
+.admin-financial-preview b {
+  color: var(--ok);
+  font-size: 18px;
+}
+
+.admin-financial-preview > div:last-child b {
+  color: var(--bad);
+}
+
 .reception-summary {
   gap: 16px;
+}
+
+.admin-summary {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .reception-stat {
@@ -1296,6 +1351,28 @@ tr.hl td {
   .reception-actions,
   .reception-summary {
     grid-template-columns: 1fr;
+  }
+
+  .admin-financial-action {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .admin-financial-action .reception-action-top,
+  .admin-financial-action > b,
+  .admin-financial-action > span,
+  .admin-financial-preview {
+    grid-column: 1;
+  }
+
+  .admin-financial-preview {
+    grid-row: auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .reception-activity .ar {
