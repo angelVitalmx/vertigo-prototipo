@@ -48,7 +48,7 @@ const STATE = {
   sessionIncome: 0,
   uq: '',
   planFilt: 'Todos',
-  form: { n: '', d: '30', t: '', e: '', ok: false },
+  form: { n: '', d: '30', t: '', e: '', ok: false, c: '' },
   formErr: {},
   aforo: 18,
   attendanceToday: 18,
@@ -78,7 +78,9 @@ const STATE = {
   ],
   P: { Bronce: 500, Plata: 800, Oro: 1200 },
   INS: 300,
-  MULTA: 100
+  MULTA: 100,
+  // Códigos de descuento de muestra: porcentaje sobre el total de la inscripción.
+  CODES: { BIENVENIDA10: 10, AMIGO15: 15, VERTIGO20: 20 }
 };
 
 const S = STATE;
@@ -231,11 +233,26 @@ function viewPanel() {
 }
 
 function viewInscribir() {
-  return '<main style="max-width:1000px">' + back('Volver al menú principal', 'panel') + '<div><h1>Inscripción de socio</h1><p class="sub" style="font-weight:500">Registro de miembro nuevo, datos del tutor y consentimiento para la apertura del expediente digital.</p></div><div class="card"><div class="sec">Datos del socio</div><div class="fg"><div class="fld"><label>NOMBRE COMPLETO</label><input id="n0" class="' + (S.formErr.n0 ? 'err' : '') + '" value="' + escapeHtml(S.form.n) + '" oninput="S.form.n=this.value" placeholder="Ej. Fernanda Ruiz"></div><div class="fld"><label>EDAD</label><input id="d0" class="' + (S.formErr.d0 ? 'err' : '') + '" value="' + escapeHtml(S.form.d) + '" oninput="S.form.d=this.value" maxlength="2" inputmode="numeric"></div><div class="fld"><label>TELÉFONO</label><input id="t0" class="' + (S.formErr.t0 ? 'err' : '') + '" value="' + escapeHtml(S.form.t) + '" oninput="S.form.t=this.value" maxlength="10" inputmode="numeric" placeholder="10 dígitos"></div><div class="fld"><label>CORREO</label><input id="e0" class="' + (S.formErr.e0 ? 'err' : '') + '" type="email" value="' + escapeHtml(S.form.e) + '" oninput="S.form.e=this.value" placeholder="correo@ejemplo.com"></div></div></div><div class="card" style="margin-top:20px"><div class="sec">Plan y membresía</div><div class="sel"><button class="' + (S.tier === 'Bronce' ? 'on' : '') + '" onclick="S.tier=\'Bronce\';render()">Bronce</button><button class="' + (S.tier === 'Plata' ? 'on' : '') + '" onclick="S.tier=\'Plata\';render()">Plata</button><button class="' + (S.tier === 'Oro' ? 'on' : '') + '" onclick="S.tier=\'Oro\';render()">Oro</button></div><div class="fg" style="margin-top:16px"><div class="fld"><label>PERSONAS EN EL PLAN</label><input value="' + S.pers + '" inputmode="numeric" onchange="S.pers=Math.min(10,Math.max(1,Math.round(Number(this.value))||1));render()"></div><div class="fld"><label>CUOTA BASE</label><input value="' + money(S.P[S.tier]) + '" readonly></div></div><div class="fld" style="margin-top:16px"><label>TOTAL A COBRAR (CUOTA × PERSONAS + INSCRIPCIÓN ' + money(S.INS) + ')</label><input value="' + money(S.P[S.tier] * S.pers + S.INS) + '" readonly></div></div><div class="card" style="margin-top:20px"><div class="sec">Documentación</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div class="drop" onclick="toast(\'Carga de documento simulada\')"><div class="ico">' + icon('id', 26) + '</div>Identificación Oficial (INE) - Frente</div><div class="drop" onclick="toast(\'Carga de foto simulada\')"><div class="ico">' + icon('cam', 26) + '</div>Tomar o subir foto de perfil (Rostro)</div><span class="mut">' + icon('up', 26) + '</span></div><label style="display:flex;gap:8px;align-items:center;margin-top:20px;color:var(--tx);font-size:13px"><input id="ok" type="checkbox" style="width:auto"' + (S.form.ok ? ' checked' : '') + ' onchange="S.form.ok=this.checked"> El socio acepta el aviso de privacidad</label></div><div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap"><button class="btn r" style="min-width:220px" onclick="resetForm();go(\'panel\')">Cancelar Registro</button><button class="btn gr" style="min-width:220px" onclick="inscribir()">Registrar Usuario</button></div></main>';
+  return '<main style="max-width:1000px">' + back('Volver al menú principal', 'panel') + '<div><h1>Inscripción de socio</h1><p class="sub" style="font-weight:500">Registro de miembro nuevo, datos del tutor y consentimiento para la apertura del expediente digital.</p></div><div class="card"><div class="sec">Datos del socio</div><div class="fg"><div class="fld"><label>NOMBRE COMPLETO</label><input id="n0" class="' + (S.formErr.n0 ? 'err' : '') + '" value="' + escapeHtml(S.form.n) + '" oninput="S.form.n=this.value" placeholder="Ej. Fernanda Ruiz"></div><div class="fld"><label>EDAD</label><input id="d0" class="' + (S.formErr.d0 ? 'err' : '') + '" value="' + escapeHtml(S.form.d) + '" oninput="S.form.d=this.value" maxlength="2" inputmode="numeric"></div><div class="fld"><label>TELÉFONO</label><input id="t0" class="' + (S.formErr.t0 ? 'err' : '') + '" value="' + escapeHtml(S.form.t) + '" oninput="S.form.t=this.value" maxlength="10" inputmode="numeric" placeholder="10 dígitos"></div><div class="fld"><label>CORREO</label><input id="e0" class="' + (S.formErr.e0 ? 'err' : '') + '" type="email" value="' + escapeHtml(S.form.e) + '" oninput="S.form.e=this.value" placeholder="correo@ejemplo.com"></div></div></div><div class="card" style="margin-top:20px"><div class="sec">Plan y membresía</div><div class="sel"><button class="' + (S.tier === 'Bronce' ? 'on' : '') + '" onclick="S.tier=\'Bronce\';render()">Bronce</button><button class="' + (S.tier === 'Plata' ? 'on' : '') + '" onclick="S.tier=\'Plata\';render()">Plata</button><button class="' + (S.tier === 'Oro' ? 'on' : '') + '" onclick="S.tier=\'Oro\';render()">Oro</button></div><div class="fg" style="margin-top:16px"><div class="fld"><label>PERSONAS EN EL PLAN</label><input value="' + S.pers + '" inputmode="numeric" onchange="S.pers=Math.min(10,Math.max(1,Math.round(Number(this.value))||1));render()"></div><div class="fld"><label>CUOTA BASE</label><input value="' + money(S.P[S.tier]) + '" readonly></div></div><div class="fld" style="margin-top:16px"><label for="code0">CÓDIGO DE DESCUENTO (OPCIONAL)</label><div style="display:flex;gap:10px"><input id="code0" value="' + escapeHtml(S.form.c) + '" placeholder="Ej. BIENVENIDA10" autocapitalize="characters" onkeydown="if(event.key===\'Enter\')aplicarCodigo()"><button class="btn o sm" onclick="aplicarCodigo()">Aplicar</button></div>' + (S.form.c ? '<div style="margin-top:8px">' + badge('ok', 'Código ' + S.form.c + ' aplicado: −' + S.CODES[S.form.c] + '% (−' + money(regTotals().discount) + ')') + '</div>' : '') + '</div><div class="fld" style="margin-top:16px"><label>TOTAL A COBRAR (CUOTA × PERSONAS + INSCRIPCIÓN ' + money(S.INS) + (S.form.c ? ' − DESCUENTO' : '') + ')</label><input value="' + money(regTotals().total) + '" readonly></div></div><div class="card" style="margin-top:20px"><div class="sec">Documentación</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><div class="drop" onclick="toast(\'Carga de documento simulada\')"><div class="ico">' + icon('id', 26) + '</div>Identificación Oficial (INE) - Frente</div><div class="drop" onclick="toast(\'Carga de foto simulada\')"><div class="ico">' + icon('cam', 26) + '</div>Tomar o subir foto de perfil (Rostro)</div><span class="mut">' + icon('up', 26) + '</span></div><label style="display:flex;gap:8px;align-items:center;margin-top:20px;color:var(--tx);font-size:13px"><input id="ok" type="checkbox" style="width:auto"' + (S.form.ok ? ' checked' : '') + ' onchange="S.form.ok=this.checked"> El socio acepta el aviso de privacidad</label></div><div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap"><button class="btn r" style="min-width:220px" onclick="resetForm();go(\'panel\')">Cancelar Registro</button><button class="btn gr" style="min-width:220px" onclick="inscribir()">Registrar Usuario</button></div></main>';
+}
+
+function regTotals() {
+  const base = S.P[S.tier] * S.pers + S.INS;
+  const discount = Math.round(base * (S.CODES[S.form.c] || 0) / 100);
+  return { discount, total: base - discount };
+}
+
+// Un campo vacío quita el código aplicado.
+function aplicarCodigo() {
+  const code = $('code0').value.trim().toUpperCase();
+  if (code && !S.CODES[code]) return toast('Código de descuento no válido');
+  S.form.c = code;
+  if (code) toast('Descuento de ' + S.CODES[code] + '% aplicado');
+  render();
 }
 
 function resetForm() {
-  S.form = { n: '', d: '30', t: '', e: '', ok: false };
+  S.form = { n: '', d: '30', t: '', e: '', ok: false, c: '' };
   S.formErr = {};
   S.pers = 1;
 }
@@ -267,7 +284,7 @@ function inscribir() {
 
   const id = String(32000 + S.M.length);
   const name = escapeHtml(getValue('n0'));
-  const total = S.P[S.tier] * S.pers + S.INS;
+  const total = regTotals().total;
   S.M.unshift({ id, n: name, age: Number(getValue('d0')), plan: S.tier, st: 'activa', v: '14/11/2026', inside: false, tel: '+52 ' + getValue('t0') });
   S.regToday += 1;
   S.paysToday += 1;
@@ -275,7 +292,7 @@ function inscribir() {
   S.sessionIncome += total;
   log('Usuario ' + name + ' registrado', 'Nuevo Perfil · Recepción');
   S.sel = id;
-  S.modal = { t: 'Usuario registrado', n: name, c: 'Inscripción + plan ' + S.tier + (S.pers > 1 ? ' × ' + S.pers + ' personas' : ''), a: total, f: S.folio, msg: 'Se envió el mensaje de bienvenida a ' + escapeHtml(getValue('e0')) + '.' };
+  S.modal = { t: 'Usuario registrado', n: name, c: 'Inscripción + plan ' + S.tier + (S.pers > 1 ? ' × ' + S.pers + ' personas' : '') + (S.form.c ? ' · código ' + S.form.c : ''), a: total, f: S.folio, msg: 'Se envió el mensaje de bienvenida a ' + escapeHtml(getValue('e0')) + '.' };
   resetForm();
   render();
 }
